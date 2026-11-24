@@ -66,17 +66,13 @@ class MainActivity : Activity() {
             }
         }
 
-        addTitle("Разрешения (выдайте все по порядку)")
+        // ----- разрешения -----
+        addTitle("Разрешения")
         permView = TextView(this)
         permView.textSize = 18f
         root.addView(permView, lp())
-        addButton("1. Показ поверх других окон") {
-            startActivity(
-                Intent(Settings.ACTION_MANAGE_OVERLAY_PERMISSION, Uri.parse("package:$packageName"))
-            )
-        }
-        addButton("2. Уведомления") { openNotificationSettings() }
-        addButton("3. Без ограничений батареи") {
+        addButton("1. Уведомления") { openNotificationSettings() }
+        addButton("2. Без ограничений батареи") {
             try {
                 startActivity(
                     Intent(
@@ -88,36 +84,27 @@ class MainActivity : Activity() {
                 openAppDetails()
             }
         }
-        addButton("4. Xiaomi: автозапуск и экран блокировки") { openMiuiPermissions() }
-        val miuiHint = TextView(this)
-        miuiHint.textSize = 16f
-        miuiHint.text = "В пункте 4 включите: Автозапуск, Показывать на экране блокировки, " +
-                "Всплывающие окна в фоновом режиме. Также в Настройки → Приложения → " +
-                "Заряд → Контроль активности выберите «Нет ограничений»."
-        root.addView(miuiHint, lp())
+        addButton("3. Xiaomi: автозапуск") { openMiuiPermissions() }
 
-        addTitle("Число поверх экрана")
-        addSwitch("Показывать число заряда", Prefs.OVERLAY_ON, true)
-        addSeek("Размер: %d", Prefs.OVERLAY_SIZE, 12, 150, 40)
-        addSpinner("Цвет", Prefs.COLOR_NAMES, Prefs.OVERLAY_COLOR, 1)
-        addSpinner("Положение", Prefs.POS_NAMES, Prefs.OVERLAY_POS, 2)
-        addSeek("Отступ сверху: %d", Prefs.OVERLAY_Y, 0, 400, 0)
+        // ----- виджет -----
+        addTitle("Виджет на рабочем столе")
+        val how = TextView(this)
+        how.textSize = 16f
+        how.text = "Как добавить: долгое нажатие на пустое место рабочего стола → " +
+                "«Виджеты» → «Заряд». Двигайте и растягивайте его пальцем, как любой виджет. " +
+                "Ниже настройки внешнего вида, они применяются сразу."
+        root.addView(how, lp())
 
-        addTitle("Число в строке состояния")
-        addSwitch("Показывать число вместо значка уведомления", Prefs.STATUS_ICON_ON, true)
+        addSeek("Размер числа: %d", Prefs.W_SIZE, 20, 120, 60)
+        addSpinner("Цвет числа", Prefs.COLOR_NAMES, Prefs.W_COLOR, 0)
+        addSpinner("Выравнивание", Prefs.ALIGN_NAMES, Prefs.W_ALIGN, 1)
+        addSpinner("Цвет фона", Prefs.BG_NAMES, Prefs.W_BG_COLOR, 0)
+        addSeek("Непрозрачность фона: %d%%", Prefs.W_BG_OPACITY, 0, 100, 60)
+        addSwitch("Показывать подпись «Заряжается»", Prefs.W_STATUS, true) { updateWidget() }
 
-        addTitle("Крупный экран зарядки")
-        addSwitch("Показывать при подключении зарядки", Prefs.CHARGE_SCREEN_ON, true)
-        addSeek("Размер: %d", Prefs.CHARGE_SIZE, 40, 150, 110)
-        addSpinner("Цвет", Prefs.COLOR_NAMES, Prefs.CHARGE_COLOR, 2)
-        addButton("Показать пример") {
-            val i = Intent(this, ChargingActivity::class.java)
-            i.putExtra("preview", true)
-            startActivity(i)
-        }
-
+        // ----- оповещения -----
         addTitle("Звуковые оповещения")
-        addSwitch("Оповещения включены", Prefs.ALERTS_ON, true)
+        addSwitch("Оповещения включены", Prefs.ALERTS_ON, true) { }
 
         addLabel("Когда телефон заряжается — сигнал «снять с зарядки» на уровнях:")
         addChecks(Prefs.HIGH_LEVELS, Prefs.HIGH_SET, setOf("80"))
@@ -135,7 +122,8 @@ class MainActivity : Activity() {
 
         val note = TextView(this)
         note.textSize = 16f
-        note.text = "Сигналы идут через громкость будильника. Если она на нуле, звука не будет."
+        note.text = "Сигнал звучит один раз. Он идёт через громкость будильника: " +
+                "если она на нуле, звука не будет."
         root.addView(note, lp())
     }
 
@@ -184,7 +172,7 @@ class MainActivity : Activity() {
         text: String,
         key: String,
         def: Boolean,
-        after: (Boolean) -> Unit = { refreshService() }
+        after: (Boolean) -> Unit
     ) {
         val s = Switch(this)
         s.text = text
@@ -216,7 +204,7 @@ class MainActivity : Activity() {
             override fun onStartTrackingTouch(s: SeekBar?) {}
 
             override fun onStopTrackingTouch(s: SeekBar?) {
-                refreshService()
+                updateWidget()
             }
         })
         root.addView(tv, lp())
@@ -230,9 +218,9 @@ class MainActivity : Activity() {
         spinner.setSelection(sp.getInt(key, def).coerceIn(0, items.size - 1))
         spinner.onItemSelectedListener = object : AdapterView.OnItemSelectedListener {
             override fun onItemSelected(p: AdapterView<*>?, v: View?, pos: Int, id: Long) {
-                if (sp.getInt(key, -999) != pos) {
+                if (sp.getInt(key, def) != pos) {
                     sp.edit().putInt(key, pos).apply()
-                    refreshService()
+                    updateWidget()
                 }
             }
 
@@ -256,10 +244,13 @@ class MainActivity : Activity() {
         }
     }
 
+    private fun updateWidget() {
+        BatteryWidget.update(this)
+    }
+
     // ---------- разрешения и служба ----------
 
     private fun updatePermStatus() {
-        val overlay = Settings.canDrawOverlays(this)
         val notif = if (Build.VERSION.SDK_INT >= 33) {
             checkSelfPermission(Manifest.permission.POST_NOTIFICATIONS) ==
                     PackageManager.PERMISSION_GRANTED
@@ -268,8 +259,7 @@ class MainActivity : Activity() {
         }
         val pm = getSystemService(PowerManager::class.java)
         val battery = pm.isIgnoringBatteryOptimizations(packageName)
-        permView.text = "Поверх окон: ${mark(overlay)}\n" +
-                "Уведомления: ${mark(notif)}\n" +
+        permView.text = "Уведомления: ${mark(notif)}\n" +
                 "Без ограничений батареи: ${mark(battery)}"
     }
 
@@ -317,9 +307,5 @@ class MainActivity : Activity() {
 
     private fun startSvc() {
         startForegroundService(Intent(this, BatteryService::class.java))
-    }
-
-    private fun refreshService() {
-        if (sp.getBoolean(Prefs.SERVICE_ON, false)) startSvc()
     }
 }

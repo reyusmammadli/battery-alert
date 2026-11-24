@@ -10,21 +10,10 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.ServiceInfo
-import android.graphics.Bitmap
-import android.graphics.Canvas
-import android.graphics.Color
-import android.graphics.Paint
-import android.graphics.PixelFormat
-import android.graphics.Typeface
 import android.graphics.drawable.Icon
 import android.os.BatteryManager
 import android.os.Build
 import android.os.IBinder
-import android.provider.Settings
-import android.util.TypedValue
-import android.view.Gravity
-import android.view.WindowManager
-import android.widget.TextView
 
 class BatteryService : Service() {
 
@@ -35,10 +24,7 @@ class BatteryService : Service() {
         const val ID_ALERT = 2
     }
 
-    private lateinit var wm: WindowManager
-    private var overlayView: TextView? = null
     private var registered = false
-
     private var level = -1
     private var charging = false
     private var lastLevel = -1
@@ -54,7 +40,6 @@ class BatteryService : Service() {
 
     override fun onCreate() {
         super.onCreate()
-        wm = getSystemService(Context.WINDOW_SERVICE) as WindowManager
         createChannels()
     }
 
@@ -70,7 +55,7 @@ class BatteryService : Service() {
             registered = true
             if (sticky != null) onBattery(sticky)
         } else {
-            refreshUi()
+            BatteryWidget.update(this)
         }
         return START_STICKY
     }
@@ -83,7 +68,6 @@ class BatteryService : Service() {
             }
             registered = false
         }
-        removeOverlay()
         super.onDestroy()
     }
 
@@ -105,13 +89,12 @@ class BatteryService : Service() {
         if (prev != -1 && prevCharging == plugged && prev != pct) {
             checkAlerts(prev, pct, plugged)
         }
-        if (prevCharging == false && plugged) {
-            showChargeScreen()
-        }
 
         lastLevel = pct
         lastCharging = plugged
-        refreshUi()
+
+        getSystemService(NotificationManager::class.java).notify(ID_STATUS, buildNotification())
+        BatteryWidget.update(this)
     }
 
     private fun checkAlerts(prev: Int, now: Int, plugged: Boolean) {
@@ -152,28 +135,11 @@ class BatteryService : Service() {
         getSystemService(NotificationManager::class.java).notify(ID_ALERT, n)
     }
 
-    private fun showChargeScreen() {
-        val sp = Prefs.sp(this)
-        if (!sp.getBoolean(Prefs.CHARGE_SCREEN_ON, true)) return
-        if (!Settings.canDrawOverlays(this)) return
-        try {
-            val i = Intent(this, ChargingActivity::class.java)
-            i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TOP)
-            startActivity(i)
-        } catch (e: Exception) {
-        }
-    }
-
-    // ---------- интерфейс ----------
-
-    private fun refreshUi() {
-        getSystemService(NotificationManager::class.java).notify(ID_STATUS, buildNotification())
-        updateOverlay()
-    }
+    // ---------- уведомления ----------
 
     private fun createChannels() {
         val nm = getSystemService(NotificationManager::class.java)
-        val status = NotificationChannel(CH_STATUS, "Индикатор заряда", NotificationManager.IMPORTANCE_LOW)
+        val status = NotificationChannel(CH_STATUS, "Работа приложения", NotificationManager.IMPORTANCE_LOW)
         status.setShowBadge(false)
         nm.createNotificationChannel(status)
         val alert = NotificationChannel(CH_ALERT, "Оповещения о заряде", NotificationManager.IMPORTANCE_HIGH)
@@ -182,19 +148,12 @@ class BatteryService : Service() {
     }
 
     private fun buildNotification(): Notification {
-        val sp = Prefs.sp(this)
-        val showNumber = sp.getBoolean(Prefs.STATUS_ICON_ON, true) && level >= 0
-        val icon = if (showNumber) {
-            numberIcon(level.toString())
-        } else {
-            Icon.createWithResource(this, R.drawable.ic_stat)
-        }
         val pi = PendingIntent.getActivity(
             this, 0, Intent(this, MainActivity::class.java),
             PendingIntent.FLAG_IMMUTABLE or PendingIntent.FLAG_UPDATE_CURRENT
         )
         return Notification.Builder(this, CH_STATUS)
-            .setSmallIcon(icon)
+            .setSmallIcon(Icon.createWithResource(this, R.drawable.ic_stat))
             .setContentTitle(if (level >= 0) "Заряд: $level%" else "Заряд батареи")
             .setContentText(if (charging) "Заряжается" else "Не заряжается")
             .setOngoing(true)
@@ -202,74 +161,5 @@ class BatteryService : Service() {
             .setShowWhen(false)
             .setContentIntent(pi)
             .build()
-    }
-
-    private fun numberIcon(text: String): Icon {
-        val size = 96
-        val bmp = Bitmap.createBitmap(size, size, Bitmap.Config.ARGB_8888)
-        val canvas = Canvas(bmp)
-        val p = Paint(Paint.ANTI_ALIAS_FLAG)
-        p.color = Color.WHITE
-        p.typeface = Typeface.DEFAULT_BOLD
-        p.textAlign = Paint.Align.CENTER
-        p.textSize = 90f
-        val w = p.measureText(text)
-        if (w > size) p.textSize = p.textSize * size / w
-        val y = size / 2f - (p.descent() + p.ascent()) / 2f
-        canvas.drawText(text, size / 2f, y, p)
-        return Icon.createWithBitmap(bmp)
-    }
-
-    private fun dp(v: Int): Int = (v * resources.displayMetrics.density).toInt()
-
-    private fun removeOverlay() {
-        overlayView?.let {
-            try {
-                wm.removeView(it)
-            } catch (e: Exception) {
-            }
-        }
-        overlayView = null
-    }
-
-    private fun updateOverlay() {
-        val sp = Prefs.sp(this)
-        val enabled = sp.getBoolean(Prefs.OVERLAY_ON, true) &&
-                Settings.canDrawOverlays(this) && level >= 0
-        if (!enabled) {
-            removeOverlay()
-            return
-        }
-        val tv = overlayView ?: TextView(this).also { overlayView = it }
-        tv.text = (if (charging) "⚡" else "") + "$level%"
-        tv.setTextSize(TypedValue.COMPLEX_UNIT_SP, sp.getInt(Prefs.OVERLAY_SIZE, 40).toFloat())
-        tv.setTextColor(Prefs.color(this, Prefs.OVERLAY_COLOR, 1))
-        tv.typeface = Typeface.DEFAULT_BOLD
-        tv.setShadowLayer(8f, 0f, 0f, Color.BLACK)
-        tv.setBackgroundColor(0x99000000.toInt())
-        tv.setPadding(dp(10), dp(2), dp(10), dp(2))
-
-        val lp = WindowManager.LayoutParams(
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.WRAP_CONTENT,
-            WindowManager.LayoutParams.TYPE_APPLICATION_OVERLAY,
-            WindowManager.LayoutParams.FLAG_NOT_FOCUSABLE or
-                    WindowManager.LayoutParams.FLAG_NOT_TOUCHABLE or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_IN_SCREEN or
-                    WindowManager.LayoutParams.FLAG_LAYOUT_NO_LIMITS,
-            PixelFormat.TRANSLUCENT
-        )
-        val horizontal = when (sp.getInt(Prefs.OVERLAY_POS, 2)) {
-            0 -> Gravity.START
-            1 -> Gravity.CENTER_HORIZONTAL
-            else -> Gravity.END
-        }
-        lp.gravity = Gravity.TOP or horizontal
-        lp.y = dp(sp.getInt(Prefs.OVERLAY_Y, 0))
-
-        try {
-            if (tv.parent == null) wm.addView(tv, lp) else wm.updateViewLayout(tv, lp)
-        } catch (e: Exception) {
-        }
     }
 }

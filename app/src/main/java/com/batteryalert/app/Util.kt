@@ -11,18 +11,15 @@ import android.os.Looper
 object Prefs {
     const val SERVICE_ON = "service_on"
 
-    const val OVERLAY_ON = "overlay_on"
-    const val OVERLAY_SIZE = "overlay_size"
-    const val OVERLAY_COLOR = "overlay_color"
-    const val OVERLAY_POS = "overlay_pos"
-    const val OVERLAY_Y = "overlay_y"
+    // виджет
+    const val W_SIZE = "w_size"
+    const val W_COLOR = "w_color"
+    const val W_ALIGN = "w_align"
+    const val W_BG_COLOR = "w_bg_color"
+    const val W_BG_OPACITY = "w_bg_opacity"
+    const val W_STATUS = "w_status"
 
-    const val STATUS_ICON_ON = "status_icon_on"
-
-    const val CHARGE_SCREEN_ON = "charge_screen_on"
-    const val CHARGE_SIZE = "charge_size"
-    const val CHARGE_COLOR = "charge_color"
-
+    // оповещения
     const val ALERTS_ON = "alerts_on"
     const val HIGH_SET = "high_set"
     const val LOW_SET = "low_set"
@@ -41,7 +38,15 @@ object Prefs {
         Color.parseColor("#FF5252"),
         Color.parseColor("#FFA726")
     )
-    val POS_NAMES = listOf("Слева", "По центру", "Справа")
+
+    val BG_NAMES = listOf("Чёрный", "Тёмно-серый", "Белый")
+    val BG_COLORS = intArrayOf(
+        Color.BLACK,
+        Color.parseColor("#37474F"),
+        Color.WHITE
+    )
+
+    val ALIGN_NAMES = listOf("Слева", "По центру", "Справа")
 
     fun sp(c: Context): SharedPreferences =
         c.getSharedPreferences("settings", Context.MODE_PRIVATE)
@@ -55,10 +60,7 @@ object Prefs {
         sp(c).edit().putStringSet(key, v.map { it.toString() }.toHashSet()).apply()
     }
 
-    fun color(c: Context, key: String, def: Int): Int {
-        val idx = sp(c).getInt(key, def).coerceIn(0, COLORS.size - 1)
-        return COLORS[idx]
-    }
+    fun pick(colors: IntArray, index: Int): Int = colors[index.coerceIn(0, colors.size - 1)]
 }
 
 object Sounder {
